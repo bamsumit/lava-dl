@@ -27,8 +27,8 @@ __global__ void LIDynamicsFwdKernel(
     const T* __restrict__ input,
     const T* __restrict__ decay,
     const T* __restrict__ state,
-    const int threshold, // this must be scaled by w_scale
-    const int w_scale,
+    const float threshold, // this must be scaled by w_scale
+    const float w_scale,
     const int num_neurons,
     const int neurons_per_batch,
     const int num_decays, // this determines individual, channelwise or shared decay
@@ -39,16 +39,17 @@ __global__ void LIDynamicsFwdKernel(
 
     if(neuron_id >= num_neurons)    return;
 
-    int output_old = state[neuron_id] * w_scale;
-    int output_new, output_sign, decay_int, decayed_output;
+    float output_old = state[neuron_id] * w_scale;
+    float output_new, decay_float, decayed_output;
+    int output_sign;
     int linear_id;
 
     if(num_decays > 1) {  
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        decay_int = (1<<12) - decay[(neuron_id) % neurons_per_batch / decay_block];
+        decay_float = 1 - decay[(neuron_id) % neurons_per_batch / decay_block];
     } else { // shared decays
-        decay_int = (1<<12) - decay[0];
+        decay_float = 1 - decay[0];
     }
 
     // if(neuron_id == 0)  printf("int: %d bytes\n", sizeof(int));
@@ -57,14 +58,9 @@ __global__ void LIDynamicsFwdKernel(
         linear_id = n + neuron_id * num_steps;
 
         output_sign = (output_old >= 0) ? 1 : -1;
-
-        // anything larger than 524,287 = 0x7FFFF in magnitude will potentially cause value overflow and change in sign
-        // calculate the decay in double and convert it to int
-        decayed_output = int(1.0l * output_sign * output_old * decay_int / 4096);
-
-        output_new = output_sign * decayed_output + int(w_scale * input[linear_id]);
-        
-        output[linear_id] = 1.0f * output_new / w_scale;
+        decayed_output = floorf(output_sign * output_old * decay_float);
+        output_new = output_sign * decayed_output + floorf(w_scale * input[linear_id]);
+        output[linear_id] = output_new / w_scale;
         
         if(threshold >= 0 && output_new >= threshold) { // if threshold <0, then there is no spike and reset dynamics
             output_old = 0;
@@ -95,9 +91,9 @@ __global__ void LIDynamicsBwdKernel(
     if(num_decays > 1) {  
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        decay = 1 - decay_tensor[(neuron_id) % neurons_per_batch / decay_block] / (1<<12);
+        decay = 1 - decay_tensor[(neuron_id) % neurons_per_batch / decay_block];
     } else { // shared decays
-        decay = 1 - decay_tensor[0] / (1<<12);
+        decay = 1 - decay_tensor[0];
     }
 
     int linear_id;
@@ -114,7 +110,7 @@ variable_list LIDynamicsFwd(
     const Variable decay,
     const Variable state,
     float threshold,
-    int w_scale
+    float w_scale
 ) {
     // make sure all the inputs are contigious and in same device
     CHECK_INPUT(input);

@@ -107,7 +107,8 @@ class Neuron(torch.nn.Module):
     def __init__(
         self, threshold,
         tau_grad=1, scale_grad=1,
-        p_scale=1, w_scale=1, s_scale=1,
+        w_scale=1, s_scale=1,
+        decay_bits = None,
         norm=None, dropout=None,
         persistent_state=False, shared_param=True,
         requires_grad=True,
@@ -121,7 +122,8 @@ class Neuron(torch.nn.Module):
         # They should be trivially immutable
         self.num_neurons = None
         self.shape = None
-        self.p_scale = p_scale
+        self.decay_bits = decay_bits
+        self.p_scale = (1 << decay_bits) if decay_bits is not None else 1
         self.w_scale = int(w_scale)
         self.s_scale = int(s_scale)
         # quantize to proper value
@@ -215,3 +217,7 @@ class Neuron(torch.nn.Module):
     def clamp(self):
         """ """
         pass
+
+    def int_decay(self, decay):
+        """ Get the fixed precision decay"""
+        return quantize(decay * (1 << self.decay_bits))

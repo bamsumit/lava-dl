@@ -75,11 +75,11 @@ def dynamics(
     ref_state : torch tensor
         refractory state.
     ref_decay : torch tensor
-        refractory decay. Note: it is unscaled integer value here.
+        refractory decay.
     th_state : torch tensor
         threshold state.
     th_decay : torch tensor
-        threshold decay. Note: it is unscaled integer value here.
+        threshold decay.
     th_scale : float
         threshold step after spike.
     th0 : float
@@ -186,8 +186,8 @@ class _ATHDynamics(torch.autograd.Function):
         """ """
         threshold, refractory = _ath_dynamics_fwd(
             input,
-            ref_state, ref_decay,
-            th_state, th_decay, th_scale, th0,
+            ref_state, ref_decay * (1 << 12),
+            th_state, th_decay * (1 << 12), th_scale, th0,
             w_scale, dtype=torch.int64
         )
 

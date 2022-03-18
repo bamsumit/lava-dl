@@ -37,9 +37,9 @@ __global__ void AdResDynamicsFwdKernel(
     const T* __restrict__ ref_decay,
     const T* __restrict__ th_state,
     const T* __restrict__ th_decay,
-    const int th_scale,
-    const int th0,
-    const int w_scale,
+    const float th_scale,
+    const float th0,
+    const float w_scale,
     const int num_neurons,
     const int neurons_per_batch,
     const int num_decays, // this determines individual, channelwise or shared decay
@@ -50,66 +50,66 @@ __global__ void AdResDynamicsFwdKernel(
 
     if(neuron_id >= num_neurons)    return;
 
-    int real = real_state[neuron_id] * w_scale;
-    int imag = imag_state[neuron_id] * w_scale;
-    int real_new, imag_new;
+    float real = real_state[neuron_id] * w_scale;
+    float imag = imag_state[neuron_id] * w_scale;
+    float real_new, imag_new;
 
-    int th = th_state[neuron_id] * w_scale;
-    int th_step = th_scale;
-    int th_decay_int;
+    float th = th_state[neuron_id] * w_scale;
+    float th_step = th_scale;
+    float th_decay_float;
 
-    int ref_new = ref_state[neuron_id] * w_scale;
-    int ref_decay_int;
+    float ref_new = ref_state[neuron_id] * w_scale;
+    float ref_decay_float;
 
     int real_sign;
     int imag_sign;
-    double real_decayed;
-    double imag_decayed;
+    float real_decayed;
+    float imag_decayed;
 
-    int sin_decay_int, cos_decay_int;
+    float sin_decay_float, cos_decay_float;
     int linear_id;
 
     if(num_decays > 1) {
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        sin_decay_int = sin_decay[(neuron_id) % neurons_per_batch / decay_block];
-        cos_decay_int = cos_decay[(neuron_id) % neurons_per_batch / decay_block];
-        th_decay_int = (1<<12) - th_decay[(neuron_id) % neurons_per_batch / decay_block];
-        ref_decay_int = (1<<12) - ref_decay[(neuron_id) % neurons_per_batch / decay_block];
+        sin_decay_float = sin_decay[(neuron_id) % neurons_per_batch / decay_block];
+        cos_decay_float = cos_decay[(neuron_id) % neurons_per_batch / decay_block];
+        th_decay_float = 1 - th_decay[(neuron_id) % neurons_per_batch / decay_block];
+        ref_decay_float = 1 - ref_decay[(neuron_id) % neurons_per_batch / decay_block];
     } else {
-        sin_decay_int = sin_decay[0];
-        cos_decay_int = cos_decay[0];
-        th_decay_int = (1<<12) - th_decay[0];
-        ref_decay_int = (1<<12) - ref_decay[0];
+        sin_decay_float = sin_decay[0];
+        cos_decay_float = cos_decay[0];
+        th_decay_float = 1 - th_decay[0];
+        ref_decay_float = 1 - ref_decay[0];
     }
 
     for(int n=0; n<num_steps; ++n) {
         linear_id = n + neuron_id * num_steps;
 
-        ref_new = (ref_new * ref_decay_int) >> 12;
-        th = (((th - th0) * th_decay_int) >> 12) + th0;
+        ref_new = floorf(ref_new * ref_decay_float);
+        th = floorf((th - th0) * th_decay_float) + th0;
 
         real_sign = (real >= 0) ? 1 : -1;
         imag_sign = (imag >= 0) ? 1 : -1;
         
         // calculate this portion in double precision
-        real_decayed = 1.0l * cos_decay_int * real;
-        imag_decayed = 1.0l * sin_decay_int * imag;
-        real_new = real_sign * int(real_sign * real_decayed / 4096) 
-                 - imag_sign * int(imag_sign * imag_decayed / 4096)
-                 + int(w_scale * real_input[linear_id]);
+        real_decayed = cos_decay_float * real;
+        imag_decayed = sin_decay_float * imag;
+        real_new = real_sign * floorf(real_sign * real_decayed) 
+                 - imag_sign * floorf(imag_sign * imag_decayed)
+                 + floorf(w_scale * real_input[linear_id]);
         
         // calculate this portion in double precision
-        real_decayed = 1.0l * sin_decay_int * real;
-        imag_decayed = 1.0l * cos_decay_int * imag;
-        imag_new = real_sign * int(real_sign * real_decayed / 4096) 
-                 + imag_sign * int(imag_sign * imag_decayed / 4096)
-                 + int(w_scale * imag_input[linear_id]);
+        real_decayed = sin_decay_float * real;
+        imag_decayed = cos_decay_float * imag;
+        imag_new = real_sign * floorf(real_sign * real_decayed) 
+                 + imag_sign * floorf(imag_sign * imag_decayed)
+                 + floorf(w_scale * imag_input[linear_id]);
 
-        real_tensor[linear_id] = 1.0f * real_new / w_scale;
-        imag_tensor[linear_id] = 1.0f * imag_new / w_scale;
-        threshold[linear_id] = 1.0f * th / w_scale;
-        refractory[linear_id] = 1.0f * ref_new / w_scale;
+        real_tensor[linear_id] = real_new / w_scale;
+        imag_tensor[linear_id] = imag_new / w_scale;
+        threshold[linear_id] = th / w_scale;
+        refractory[linear_id] = ref_new / w_scale;
         
         if(imag_new >= (th + ref_new)) {
             // real = 0;
@@ -152,11 +152,11 @@ __global__ void AdResDynamicsBwdKernel(
     if(num_decays > 1) {  
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        sin_decay = sin_decay_tensor[(neuron_id) % neurons_per_batch / decay_block] / (1<<12);
-        cos_decay = cos_decay_tensor[(neuron_id) % neurons_per_batch / decay_block] / (1<<12);
+        sin_decay = sin_decay_tensor[(neuron_id) % neurons_per_batch / decay_block];
+        cos_decay = cos_decay_tensor[(neuron_id) % neurons_per_batch / decay_block];
     } else { // shared decays
-        sin_decay = sin_decay_tensor[0] / (1<<12);
-        cos_decay = cos_decay_tensor[0] / (1<<12);
+        sin_decay = sin_decay_tensor[0];
+        cos_decay = cos_decay_tensor[0];
     }
 
     int linear_id;
@@ -188,7 +188,7 @@ variable_list AdResDynamicsFwd(
     const Variable th_state,
     float th_scale,
     float th0,
-    int w_scale
+    float w_scale
 ) {
     // make sure all the inputs are contigious and in same device
     CHECK_INPUT(real_input);
@@ -324,7 +324,7 @@ public:
         const Variable th_state,
         float th_scale,
         float th0,
-        int w_scale
+        float w_scale
     ) {
         auto result = AdResDynamicsFwd(
                 real_input, imag_input, 
@@ -389,7 +389,7 @@ std::vector<torch::Tensor> AdResDynamicsFx(
     const torch::Tensor& th_state,
     float th_scale,
     float th0,
-    int w_scale
+    float w_scale
 ) {
     auto result = AdResDynamics::apply(
             real_input, imag_input, 

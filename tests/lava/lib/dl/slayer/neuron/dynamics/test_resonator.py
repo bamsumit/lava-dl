@@ -30,10 +30,14 @@ else:
 # neuron parameters
 threshold = 1
 scale = (1 << 12)
-decay = torch.FloatTensor([np.random.random() * scale]).to(device)
+decay = torch.FloatTensor([np.random.random()]).to(device)
 phi = 2 * np.pi / (4 + 96 * np.random.random())
-sin_decay = slayer.utils.quantize((scale - decay) * np.sin(phi)).to(device)
-cos_decay = slayer.utils.quantize((scale - decay) * np.cos(phi)).to(device)
+sin_decay = slayer.utils.quantize(
+    (1 - decay) * np.sin(phi), step=1 / scale
+).to(device)
+cos_decay = slayer.utils.quantize(
+    (1 - decay) * np.cos(phi), step=1 / scale
+).to(device)
 state = torch.FloatTensor([0]).to(device)
 
 # create input
@@ -110,7 +114,7 @@ class TestRF(unittest.TestCase):
         if torch.sum(valid) > 0:
             est_decay = torch.mean(
                 1 - leak_num[valid] / leak_den[valid]
-            ) * scale
+            )
             est_phase = torch.mean(
                 (phase[..., :-1] - phase[..., 1:])[valid] % (2 * np.pi)
             )

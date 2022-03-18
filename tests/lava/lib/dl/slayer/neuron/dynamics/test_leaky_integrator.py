@@ -30,7 +30,7 @@ else:
 # neuron parameters
 threshold = 1
 scale = (1 << 12)
-decay = np.random.random() * scale
+decay = int(np.random.random() * scale) / scale
 decay = torch.FloatTensor([decay]).to(device)
 state = torch.FloatTensor([0]).to(device)
 
@@ -82,7 +82,7 @@ class TestIF(unittest.TestCase):
         leak_num = output0[..., 1:] - w_input[..., 1:]
         leak_den = output0[..., :-1]
         valid = torch.abs(leak_den) > 10 / scale
-        est_decay = torch.mean(1 - leak_num[valid] / leak_den[valid]) * scale
+        est_decay = torch.mean(1 - leak_num[valid] / leak_den[valid])
         rel_error = np.abs(
             (est_decay.item() - decay.item()) / max(decay.item(), 512)
         )

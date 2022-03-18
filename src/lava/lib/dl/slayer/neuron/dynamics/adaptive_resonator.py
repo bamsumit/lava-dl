@@ -83,9 +83,9 @@ def dynamics(
     imag_input : torch tensor
         imaginary input tensor.
     sin_decay : torch tensor
-        sin decay tensor. Note: it is unscaled integer value here.
+        sin decay tensor.
     cos_decay : torch tensor
-        cos decay tensor. Note: it is unscaled integer value here.
+        cos decay tensor.
     ref_decay : torch tensor
         refractory decay.
     th_decay : torch tensor
@@ -214,7 +214,7 @@ class _AdResDynamics(torch.autograd.Function):
         """ """
         real, imag, threshold, refractory = _AdResDynamicsFwd(
             real_input, imag_input,
-            sin_decay, cos_decay, ref_decay, th_decay,
+            sin_decay * (1 << 12), cos_decay * (1 << 12), ref_decay * (1 << 12), th_decay * (1 << 12),
             real_state, imag_state, ref_state, th_state,
             th_scale, th0, w_scale, dtype=torch.int64
         )
@@ -238,8 +238,9 @@ class _AdResDynamics(torch.autograd.Function):
                     print('real:', i, torch.norm(real[0, i] - _real[0, i]))
                     print(real[0, i, :50] * w_scale)
                     print(_real[0, i, :50] * w_scale)
-                    print('imag:', i)
+                    print('imag:', i, torch.norm(imag[0, i] - _imag[0, i]))
                     print(imag[0, i, :50] * w_scale)
+                    print(_imag[0, i, :50] * w_scale)
                     print('real_input:', i)
                     print(real_input[0, i, :50] * w_scale)
                     print('imag_input:', i)
@@ -273,7 +274,7 @@ class _AdResDynamics(torch.autograd.Function):
 
         grad_real_input, grad_imag_input, grad_sin_decay, grad_cos_decay = \
             _AdResDynamicsBwd(
-                grad_real, grad_imag, real, imag, sin_decay, cos_decay
+                grad_real, grad_imag, real, imag, sin_decay * (1 << 12), cos_decay * (1 << 12)
             )
 
         if _AdResDynamics.DEBUG is True and grad_real.is_cuda is True:

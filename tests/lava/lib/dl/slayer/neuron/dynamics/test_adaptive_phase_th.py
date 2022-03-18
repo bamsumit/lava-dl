@@ -28,16 +28,21 @@ else:
     device = torch.device('cpu')
 
 # neuron parameters
-threshold = 0.1
 scale = (1 << 12)
+threshold = int(0.1 * scale) / scale * 2
 rand_param = np.random.random()
-decay = torch.FloatTensor([0.1 * rand_param * scale]).to(device)
+decay = int(0.1 * np.random.random() * scale) / scale
+decay = torch.FloatTensor([decay]).to(device)
 phi = 2 * np.pi / (4 + 46 * rand_param)
-sin_decay = slayer.utils.quantize((scale - decay) * np.sin(phi)).to(device)
-cos_decay = slayer.utils.quantize((scale - decay) * np.cos(phi)).to(device)
-th_decay = int(np.random.random() * scale)
+sin_decay = slayer.utils.quantize(
+    (1 - decay) * np.sin(phi), step=1 / scale
+).to(device)
+cos_decay = slayer.utils.quantize(
+    (1 - decay) * np.cos(phi), step=1 / scale
+).to(device)
+th_decay = int(np.random.random() * scale) / scale
 th_decay = torch.FloatTensor([th_decay]).to(device)
-ref_decay = int(np.random.random() * scale)
+ref_decay = int(np.random.random() * scale) / scale
 ref_decay = torch.FloatTensor([ref_decay]).to(device)
 state = torch.FloatTensor([0]).to(device)
 
@@ -119,7 +124,7 @@ class TestAdRF(unittest.TestCase):
         if torch.sum(valid) > 0:
             est_decay = torch.mean(
                 1 - leak_num[valid] / leak_den[valid]
-            ) * scale
+            )
             est_phase = torch.mean(
                 (phase[..., :-1] - phase[..., 1:])[valid] % (2 * np.pi)
             )
@@ -175,7 +180,7 @@ class TestAdRF(unittest.TestCase):
         if torch.sum(th_valid) > 0:
             est_th_decay = torch.mean(
                 1 - th_leak_num[th_valid] / th_leak_den[th_valid]
-            ) * scale
+            )
             th_error = np.abs(
                 (est_th_decay.item() - th_decay.item()) / th_decay.item()
             )
@@ -198,7 +203,7 @@ class TestAdRF(unittest.TestCase):
         if torch.sum(ref_valid) > 0:
             est_ref_decay = torch.mean(
                 1 - ref_leak_num[ref_valid] / ref_leak_den[ref_valid]
-            ) * scale
+            )
             ref_error = np.abs(
                 (est_ref_decay.item() - ref_decay.item())
                 / max(ref_decay.item(), 512)

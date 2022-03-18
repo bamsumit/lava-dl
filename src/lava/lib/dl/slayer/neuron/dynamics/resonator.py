@@ -80,9 +80,9 @@ def dynamics(
     imag_input : torch tensor
         imaginary input tensor.
     sin_decay : torch tensor
-        sin decay tensor. Note: it is unscaled integer value here.
+        sin decay tensor.
     cos_decay : torch tensor
-        cos decay tensor. Note: it is unscaled integer value here.
+        cos decay tensor.
     real_state : torch tensor
         real dynamics state.
     imag_state : torch tensor
@@ -187,7 +187,7 @@ class _ResDynamics(torch.autograd.Function):
         """ """
         real, imag = _res_dynamics_fwd(
             real_input, imag_input,
-            sin_decay, cos_decay,
+            sin_decay * (1 << 12), cos_decay * (1 << 12),
             real_state, imag_state,
             threshold, w_scale, dtype=torch.int64
         )
@@ -245,7 +245,7 @@ class _ResDynamics(torch.autograd.Function):
 
         grad_real_input, grad_imag_input, grad_sin_decay, grad_cos_decay = \
             _res_dynamics_bwd(
-                grad_real, grad_imag, real, imag, sin_decay, cos_decay
+                grad_real, grad_imag, real, imag, sin_decay * (1 << 12), cos_decay * (1 << 12)
             )
 
         if _ResDynamics.DEBUG is True and grad_real.is_cuda is True:

@@ -31,8 +31,8 @@ __global__ void ResDynamicsFwdKernel(
     const T* __restrict__ cos_decay,
     const T* __restrict__ real_state,
     const T* __restrict__ imag_state,
-    const int threshold, // this must be scaled by w_scale
-    const int w_scale,
+    const float threshold, // this must be scaled by w_scale
+    const float w_scale,
     const int num_neurons,
     const int neurons_per_batch,
     const int num_decays, // this determines individual, channelwise or shared decay
@@ -49,20 +49,20 @@ __global__ void ResDynamicsFwdKernel(
 
     int real_sign;
     int imag_sign;
-    double real_decayed;
-    double imag_decayed;
+    float real_decayed;
+    float imag_decayed;
 
-    int sin_decay_int, cos_decay_int;
+    float sin_decay_float, cos_decay_float;
     int linear_id;
 
     if(num_decays > 1) {
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        sin_decay_int = sin_decay[(neuron_id) % neurons_per_batch / decay_block];
-        cos_decay_int = cos_decay[(neuron_id) % neurons_per_batch / decay_block];
+        sin_decay_float = sin_decay[(neuron_id) % neurons_per_batch / decay_block];
+        cos_decay_float = cos_decay[(neuron_id) % neurons_per_batch / decay_block];
     } else {
-        sin_decay_int = sin_decay[0];
-        cos_decay_int = cos_decay[0];
+        sin_decay_float = sin_decay[0];
+        cos_decay_float = cos_decay[0];
     }
 
     for(int n=0; n<num_steps; ++n) {
@@ -71,22 +71,20 @@ __global__ void ResDynamicsFwdKernel(
         real_sign = (real >= 0) ? 1 : -1;
         imag_sign = (imag >= 0) ? 1 : -1;
         
-        // calculate this portion in double precision
-        real_decayed = 1.0l * cos_decay_int * real;
-        imag_decayed = 1.0l * sin_decay_int * imag;
-        real_new = real_sign * int(real_sign * real_decayed / 4096) 
-                 - imag_sign * int(imag_sign * imag_decayed / 4096)
-                 + int(w_scale * real_input[linear_id]);
+        real_decayed = cos_decay_float * real;
+        imag_decayed = sin_decay_float * imag;
+        real_new = real_sign * floorf(real_sign * real_decayed) 
+                 - imag_sign * floorf(imag_sign * imag_decayed)
+                 + floorf(w_scale * real_input[linear_id]);
                  
-        // calculate this portion in double precision
-        real_decayed = 1.0l * sin_decay_int * real;
-        imag_decayed = 1.0l * cos_decay_int * imag;
-        imag_new = real_sign * int(real_sign * real_decayed / 4096) 
-                 + imag_sign * int(imag_sign * imag_decayed / 4096)
-                 + int(w_scale * imag_input[linear_id]);
+        real_decayed = sin_decay_float * real;
+        imag_decayed = cos_decay_float * imag;
+        imag_new = real_sign * floorf(real_sign * real_decayed) 
+                 + imag_sign * floorf(imag_sign * imag_decayed)
+                 + floorf(w_scale * imag_input[linear_id]);
 
-        real_tensor[linear_id] = 1.0f * real_new / w_scale;
-        imag_tensor[linear_id] = 1.0f * imag_new / w_scale;
+        real_tensor[linear_id] = real_new / w_scale;
+        imag_tensor[linear_id] = imag_new / w_scale;
         
         if(threshold >= 0 && imag_new >= threshold) { // if threshold <0, then there is no spike and reset dynamics
             real = 0;
@@ -125,11 +123,11 @@ __global__ void ResDynamicsBwdKernel(
     if(num_decays > 1) {  
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        sin_decay = sin_decay_tensor[(neuron_id) % neurons_per_batch / decay_block] / (1<<12);
-        cos_decay = cos_decay_tensor[(neuron_id) % neurons_per_batch / decay_block] / (1<<12);
+        sin_decay = sin_decay_tensor[(neuron_id) % neurons_per_batch / decay_block];
+        cos_decay = cos_decay_tensor[(neuron_id) % neurons_per_batch / decay_block];
     } else { // shared decays
-        sin_decay = sin_decay_tensor[0] / (1<<12);
-        cos_decay = cos_decay_tensor[0] / (1<<12);
+        sin_decay = sin_decay_tensor[0];
+        cos_decay = cos_decay_tensor[0];
     }
 
     int linear_id;
@@ -156,7 +154,7 @@ variable_list ResDynamicsFwd(
     const Variable real_state,
     const Variable imag_state,
     float threshold,
-    int w_scale
+    float w_scale
 ) {
     // make sure all the inputs are contigious and in same device
     CHECK_INPUT(real_input);

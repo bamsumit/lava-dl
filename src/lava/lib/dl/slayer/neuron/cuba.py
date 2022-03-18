@@ -107,7 +107,7 @@ class Neuron(base.Neuron):
     """
     def __init__(
         self, threshold, current_decay, voltage_decay,
-        tau_grad=1, scale_grad=1, scale=1 << 6,
+        tau_grad=1, scale_grad=1, scale=1 << 6, decay_bits=12,
         norm=None, dropout=None,
         shared_param=True, persistent_state=False, requires_grad=False,
         graded_spike=False
@@ -116,9 +116,9 @@ class Neuron(base.Neuron):
             threshold=threshold,
             tau_grad=tau_grad,
             scale_grad=scale_grad,
-            p_scale=1 << 12,
             w_scale=scale,
             s_scale=scale * (1 << 6),
+            decay_bits=decay_bits,
             norm=norm,
             dropout=dropout,
             persistent_state=persistent_state,
@@ -142,14 +142,14 @@ class Neuron(base.Neuron):
             self.register_parameter(
                 'current_decay',
                 torch.nn.Parameter(
-                    torch.FloatTensor([self.p_scale * current_decay]),
+                    torch.FloatTensor([current_decay]),
                     requires_grad=self.requires_grad,
                 )
             )
             self.register_parameter(
                 'voltage_decay',
                 torch.nn.Parameter(
-                    torch.FloatTensor([self.p_scale * voltage_decay]),
+                    torch.FloatTensor([voltage_decay]),
                     requires_grad=self.requires_grad,
                 )
             )
@@ -181,14 +181,14 @@ class Neuron(base.Neuron):
             self.register_parameter(
                 'current_decay',
                 torch.nn.Parameter(
-                    torch.FloatTensor([self.p_scale * self.current_decay_min]),
+                    torch.FloatTensor([self.current_decay_min]),
                     requires_grad=self.requires_grad,
                 )
             )
             self.register_parameter(
                 'voltage_decay',
                 torch.nn.Parameter(
-                    torch.FloatTensor([self.p_scale * self.voltage_decay_min]),
+                    torch.FloatTensor([self.voltage_decay_min]),
                     requires_grad=self.requires_grad,
                 )
             )
@@ -209,13 +209,13 @@ class Neuron(base.Neuron):
         self.clamp()
 
     def clamp(self):
-        """A function to clamp the sin decay and cosine decay parameters to be
-        within valid range. The user will generally not need to call this
+        """A function to clamp the current decay and voltage decay parameters
+        to be within valid range. The user will generally not need to call this
         function.
         """
         with torch.no_grad():
-            self.current_decay.data.clamp_(0, self.p_scale)
-            self.voltage_decay.data.clamp_(0, self.p_scale)
+            self.current_decay.data.clamp_(0, 1)
+            self.voltage_decay.data.clamp_(0, 1)
 
     @property
     def device(self):
@@ -227,7 +227,7 @@ class Neuron(base.Neuron):
         """The compartment current decay parameter to be used for configuring
         Loihi hardware."""
         self.clamp()
-        val = quantize(self.current_decay).cpu().data.numpy().astype(int)
+        val = self.int_decay(self.current_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
         return val
@@ -237,7 +237,7 @@ class Neuron(base.Neuron):
         """The compartment voltage decay parameter to be used for configuring
         Loihi hardware."""
         self.clamp()
-        val = quantize(self.voltage_decay).cpu().data.numpy().astype(int)
+        val = self.int_decay(self.voltage_decay).cpu().data.numpy().astype(int)
         if len(val) == 1:
             return val[0]
         return val
@@ -306,8 +306,8 @@ class Neuron(base.Neuron):
                         self.shape[0],
                         dtype=torch.float
                     ).to(self.device)
-                self.current_decay.data = self.p_scale * current_decay
-                self.voltage_decay.data = self.p_scale * voltage_decay
+                self.current_decay.data = current_decay
+                self.voltage_decay.data = voltage_decay
 
                 del self.current_decay_min
                 del self.current_decay_max
@@ -350,7 +350,7 @@ class Neuron(base.Neuron):
 
         current = leaky_integrator.dynamics(
             input,
-            quantize(self.current_decay),
+            quantize(self.current_decay, step=1 / self.p_scale),
             self.current_state.contiguous(),
             self.s_scale,
             debug=self.debug
@@ -361,7 +361,7 @@ class Neuron(base.Neuron):
 
         voltage = leaky_integrator.dynamics(
             current,  # bias can be enabled by adding it here
-            quantize(self.voltage_decay),
+            quantize(self.voltage_decay, step=1 / self.p_scale),
             self.voltage_state.contiguous(),
             self.s_scale,
             self.threshold,

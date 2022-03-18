@@ -30,9 +30,9 @@ __global__ void AThDynamicsFwdKernel(
     const T* __restrict__ ref_decay,
     const T* __restrict__ th_state,
     const T* __restrict__ th_decay,
-    const int th_scale,
-    const int th0,
-    const int w_scale,
+    const float th_scale,
+    const float th0,
+    const float w_scale,
     const int num_neurons,
     const int neurons_per_batch,
     const int num_decays, // this determines individual, channelwise or shared decay
@@ -43,21 +43,21 @@ __global__ void AThDynamicsFwdKernel(
 
     if(neuron_id >= num_neurons)    return;
 
-    int th = th_state[neuron_id] * w_scale;
-    int th_step = th_scale;
-    int th_decay_int;
-    int ref_new = ref_state[neuron_id] * w_scale;
-    int ref_decay_int;
+    float th = th_state[neuron_id] * w_scale;
+    float th_step = th_scale;
+    float th_decay_float;
+    float ref_new = ref_state[neuron_id] * w_scale;
+    float ref_decay_float;
     int linear_id;  
 
     if(num_decays > 1) {  
         // individual decays or channelwise decay
         // num_decays * decay_block == num_neurons
-        th_decay_int = (1<<12) - th_decay[(neuron_id) % neurons_per_batch / decay_block];
-        ref_decay_int = (1<<12) - ref_decay[(neuron_id) % neurons_per_batch / decay_block];
+        th_decay_float = 1 - th_decay[(neuron_id) % neurons_per_batch / decay_block];
+        ref_decay_float = 1 - ref_decay[(neuron_id) % neurons_per_batch / decay_block];
     } else { // shared decays
-        th_decay_int = (1<<12) - th_decay[0];
-        ref_decay_int = (1<<12) - ref_decay[0];
+        th_decay_float = 1 - th_decay[0];
+        ref_decay_float = 1 - ref_decay[0];
     }
 
     // if(neuron_id == 0)  printf("int: %d bytes\n", sizeof(int));
@@ -65,11 +65,11 @@ __global__ void AThDynamicsFwdKernel(
     for(int n=0; n<num_steps; ++n) {
         linear_id = n + neuron_id * num_steps;
 
-        ref_new = (ref_new * ref_decay_int) >> 12;
-        th = (((th - th0) * th_decay_int) >> 12) + th0;
+        ref_new = floorf(ref_new * ref_decay_float);
+        th = floorf(((th - th0) * th_decay_float)) + th0;
         
-        threshold[linear_id] = 1.0f * th / w_scale;
-        refractory[linear_id] = 1.0f * ref_new / w_scale;
+        threshold[linear_id] = th / w_scale;
+        refractory[linear_id] = ref_new / w_scale;
         
         if(int(w_scale * input[linear_id]) >= (th + ref_new)) {
             ref_new += 2*th;
@@ -86,7 +86,7 @@ variable_list AThDynamicsFwd(
     const Variable th_decay,
     float th_scale,
     float th0,
-    int w_scale
+    float w_scale
 ) {
     // make sure all the inputs are contigious and in same device
     CHECK_INPUT(input);

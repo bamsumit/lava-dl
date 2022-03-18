@@ -63,7 +63,7 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
     input : torch tensor
         input tensor.
     decay : torch tensor
-        decay tensor. Note: it is unscaled integer value here.
+        decay tensor.
     state : torch tensor
         dynamics state.
     w_scale : int
@@ -90,7 +90,9 @@ def dynamics(input, decay, state, w_scale, threshold=None, debug=False):
         state = state * torch.ones(input.shape[:-1]).to(input.device)
 
     if input.is_cuda is False or debug is True:
-        output = _LIDynamics.apply(input, decay, state, threshold, w_scale)
+        output = _LIDynamics.apply(
+            input, decay, state, threshold, w_scale
+        )
     else:
         output = Accelerated.leaky_integrator.dynamics(
             input.contiguous(), decay.contiguous(), state.contiguous(),
@@ -127,7 +129,7 @@ class _LIDynamics(torch.autograd.Function):
     def forward(ctx, input, decay, state, threshold, w_scale):
         """ """
         output = _li_dynamics_fwd(
-            input, decay, state, threshold,
+            input, decay * (1 << 12), state, threshold,
             w_scale, dtype=torch.int64
         )
 
@@ -163,7 +165,7 @@ class _LIDynamics(torch.autograd.Function):
         """ """
         output, decay = ctx.saved_tensors
 
-        grad_input, grad_decay = _li_dynamics_bwd(grad_output, output, decay)
+        grad_input, grad_decay = _li_dynamics_bwd(grad_output, output, decay * (1 << 12))
 
         if _LIDynamics.DEBUG is True and grad_output.is_cuda is True:
             _grad_input, _grad_decay = Accelerated.leaky_integrator.bwd(
