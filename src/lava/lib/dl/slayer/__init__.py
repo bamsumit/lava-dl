@@ -12,6 +12,7 @@ from . import loss
 from . import io
 from . import auto
 from . import utils
+from . import conversion
 from . import object_detection as obd
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     'io',
     'auto',
     'utils',
+    'conversion',
     'obd'
 ]

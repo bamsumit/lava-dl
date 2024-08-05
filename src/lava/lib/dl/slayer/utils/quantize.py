@@ -113,3 +113,81 @@ def quantize_hook_fx(x: torch.tensor,
     else:
         return quantize(x, step=2 / scale).clamp(min / scale,
                                                  max / scale) * scale
+
+
+class QuantizeAndClamp:
+    def __init__(self,
+                 num_bits: int,
+                 step: float,
+                 quant_mode: MODE = MODE.ROUND) -> None:
+        """Quantize and clamp a tensor.
+
+        Parameters
+        ----------
+        num_bits : int
+            Number of bits to represent the tensor in fixed point.
+        step : float
+            Quantization step
+        quant_mode : MODE, optional
+            Mode of quantization as described by MODE enum. By default
+            MODE.ROUND.
+        """
+        self.num_bits = num_bits
+        self.step = step
+        self.amax = ((1 << num_bits - 1) - 1) * self.step
+        self.quant_mode = quant_mode
+
+    def __call__(self,
+                 x: torch.tensor,
+                 mode: MODE | None = None) -> torch.tensor:
+        """When called, it performs fake quantization with passthrough gradient.
+
+        Parameters
+        ----------
+        x : torch.tensor
+            Input tensor.
+        mode : MODE, optional
+            Mode of quantization to use for this particular call. If none,
+            the quantizer object's quantization mode is used, by default None.
+
+        Returns
+        -------
+        torch.tensor
+            Output tessor with quantization step applied.
+        """
+        if mode is None:
+            mode = self.quant_mode
+        return quantize(x,
+                        step=self.step,
+                        mode=mode).clamp(-self.amax, self.amax)
+
+    def quantize(self, x: torch.tensor) -> torch.tensor:
+        """Quantize a tensor to integer values. Note: it does not change the
+        data type.
+
+        Parameters
+        ----------
+        x : torch.tensor
+            Input tensor in full precision.
+
+        Returns
+        -------
+        torch.tensor
+            Quantized tensor in fixed precision.
+        """
+        return self(x) / self.step
+
+    def dequantize(self, x: torch.tensor) -> torch.tensor:
+        """Dequantize a tensor to full precision value.
+
+        Parameters
+        ----------
+        x : torch.tensor
+            Input tensor in fixed precision.
+
+        Returns
+        -------
+        torch.tensor
+            Output tensor in full precision.
+        """
+        return x * self.step
